@@ -1,14 +1,13 @@
 import 'dart:async';
 
 import 'package:fl_clash/common/common.dart';
-import 'package:fl_clash/common/service_probe.dart';
 import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/features/xboard/xboard_remote_config.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
-import 'package:fl_clash/views/proxies/proxies.dart';
+import 'package:fl_clash/views/dashboard/lanxing_nodes_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -143,6 +142,7 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
               ),
               const SizedBox(height: 36),
               _ConnectButton(
+                siteName: config.siteName,
                 connecting: connecting,
                 connected: connected,
                 onTap: _toggle,
@@ -168,7 +168,10 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
               ],
               _SectionTitle('节点'),
               const SizedBox(height: 8),
-              _NodeCard(onTap: () => _goToProxies()),
+              _NodeCard(
+                siteName: config.siteName,
+                onTap: () => _goToProxies(),
+              ),
             ],
           ),
         ),
@@ -178,7 +181,9 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
 
   void _goToProxies() {
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ProxiesView()),
+      MaterialPageRoute(
+        builder: (_) => LanxingNodesPage(siteName: _config.siteName),
+      ),
     );
   }
 
@@ -314,11 +319,13 @@ class _SectionTitle extends StatelessWidget {
 /// 大圆形连接按钮（Hiddify 风格：正圆 + logo 染色 + 光晕）。
 class _ConnectButton extends StatelessWidget {
   const _ConnectButton({
+    required this.siteName,
     required this.connecting,
     required this.connected,
     required this.onTap,
   });
 
+  final String siteName;
   final bool connecting;
   final bool connected;
   final VoidCallback onTap;
@@ -347,7 +354,7 @@ class _ConnectButton extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         if (connected)
-          const _DelayLine()
+          _DelayLine(siteName: siteName)
         else if (connecting)
           const _DelayPlaceholder(),
       ],
@@ -355,19 +362,38 @@ class _ConnectButton extends StatelessWidget {
   }
 }
 
-/// 已连接时：Wi-Fi 图标 + 延迟。
+/// 已连接时：Wi-Fi 图标 + 当前真实节点的延迟。
 class _DelayLine extends ConsumerWidget {
-  const _DelayLine();
+  const _DelayLine({required this.siteName});
+
+  final String siteName;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colorScheme = context.colorScheme;
-    final state = ref.watch(realSelectedProxyStateProvider(routedOutbound));
-    final proxyName = state.proxyName;
-    final delay = ref.watch(
-      delayProvider(proxyName: proxyName, testUrl: null),
-    );
-    final text = delay != null && delay > 0 ? '$delay ms' : '-- ms';
+    final groups = ref.watch(groupsProvider);
+    final site = siteName.isEmpty ? '蓝星云' : siteName;
+    Group? group = groups.getGroup(site);
+    if (group == null) {
+      for (final g in groups) {
+        if (g.type == GroupType.Selector) {
+          group = g;
+          break;
+        }
+      }
+    }
+    final selectedName = group == null
+        ? ''
+        : (ref.watch(selectedProxyNameProvider(group.name)) ?? '');
+    final realName = selectedName.isEmpty
+        ? ''
+        : ref.watch(realSelectedProxyStateProvider(selectedName)).proxyName;
+    final delay = realName.isEmpty
+        ? null
+        : ref.watch(
+            delayProvider(proxyName: realName, testUrl: group?.testUrl),
+          );
+    final text = delay != null && delay > 0 ? '$delay ms' : '--';
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -756,8 +782,9 @@ class _OptionRow extends StatelessWidget {
 
 /// 节点卡片（heysocks 风格）：国旗方块 + 节点名 + 延迟。
 class _NodeCard extends ConsumerWidget {
-  const _NodeCard({required this.onTap});
+  const _NodeCard({required this.siteName, required this.onTap});
 
+  final String siteName;
   final VoidCallback onTap;
 
   @override
@@ -765,14 +792,34 @@ class _NodeCard extends ConsumerWidget {
     final colorScheme = context.colorScheme;
     final dark = colorScheme.brightness == Brightness.dark;
     final cardColor = dark ? const Color(0xFF23252D) : Colors.white;
-    final state = ref.watch(realSelectedProxyStateProvider(routedOutbound));
-    final proxyName = state.proxyName;
-    final delay = ref.watch(
-      delayProvider(proxyName: proxyName, testUrl: null),
+    final groups = ref.watch(groupsProvider);
+    // 优先站点名分组，其次第一个 selector 分组。
+    final site = siteName.isEmpty ? '蓝星云' : siteName;
+    Group? group = groups.getGroup(site);
+    if (group == null) {
+      for (final g in groups) {
+        if (g.type == GroupType.Selector) {
+          group = g;
+          break;
+        }
+      }
+    }
+    final selectedName = group == null
+        ? ''
+        : (ref.watch(selectedProxyNameProvider(group.name)) ?? '');
+    // 选中项若仍是分组（如「自动选择」），递归解析到真实节点。
+    final realState = ref.watch(
+      realSelectedProxyStateProvider(selectedName),
     );
-    final flag = _flagOf(proxyName);
-    final isAuto = proxyName.isEmpty || _isAutoSelect(proxyName);
+    final realName = realState.proxyName;
+    // 选中项是一个分组时算「智能推荐」，直接选节点时算「当前节点」。
+    final selectedIsGroup = groups.getGroup(selectedName) != null;
+    final isAuto = selectedName.isEmpty || selectedIsGroup;
     final subLabel = isAuto ? '智能推荐' : '当前节点';
+    final delay = ref.watch(
+      delayProvider(proxyName: realName, testUrl: group?.testUrl),
+    );
+    final flag = _flagOf(realName);
     return GestureDetector(
       onTap: onTap,
       child: Container(
@@ -809,7 +856,7 @@ class _NodeCard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    proxyName.isEmpty ? '未选择' : proxyName,
+                    realName.isEmpty ? '未选择' : realName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AppTextStyle.subheadline.of(context, emphasized: true),
@@ -853,7 +900,7 @@ class _DelayBadge extends StatelessWidget {
     final colorScheme = context.colorScheme;
     final d = delay;
     final (text, color) = switch (d) {
-      null => ('—', colorScheme.onSurfaceVariant),
+      null || 0 => ('--', colorScheme.onSurfaceVariant),
       < 0 => ('超时', colorScheme.error),
       < 150 => ('$d ms', const Color(0xFF22C55E)),
       < 300 => ('$d ms', const Color(0xFFF59E0B)),
@@ -866,14 +913,6 @@ class _DelayBadge extends StatelessWidget {
       ),
     );
   }
-}
-
-bool _isAutoSelect(String name) {
-  final lower = name.toLowerCase();
-  return lower.contains('自动') ||
-      lower.contains('auto') ||
-      lower.contains('url-test') ||
-      lower.contains('fallback');
 }
 
 /// 根据节点名匹配国旗 emoji。

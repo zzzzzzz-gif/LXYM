@@ -119,14 +119,17 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
   }
 
   Widget _buildInfoCard(BuildContext context) {
-    final theme = Theme.of(context);
+    final colorScheme = context.colorScheme;
+    final dark = colorScheme.brightness == Brightness.dark;
+    final cardColor = dark ? const Color(0xFF23252D) : Colors.white;
     final subscribe = _subscribe;
     if (subscribe == null) {
-      return Padding(
+      return Container(
         padding: const EdgeInsets.all(24),
+        decoration: ShapeDecoration(color: cardColor, shape: AppShape.all(16)),
         child: Center(
           child: _error != null
-              ? Text(_error!, style: TextStyle(color: theme.colorScheme.error))
+              ? Text(_error!, style: TextStyle(color: colorScheme.error))
               : const CircularProgressIndicator(),
         ),
       );
@@ -137,52 +140,81 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
         ? (subscribe.used / total).clamp(0.0, 1.0).toDouble()
         : 0.0;
     final remaining = total - subscribe.used;
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(subscribe.email, style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Text(
-              subscribe.planName ?? '暂未订阅套餐',
-              style: theme.textTheme.headlineSmall,
+    final resetDay = subscribe.resetDay;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: ShapeDecoration(color: cardColor, shape: AppShape.all(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 第一行：邮箱（灰色小字）
+          Text(
+            subscribe.email,
+            style: AppTextStyle.caption1.of(context).copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
-            const SizedBox(height: 4),
-            Text(
-              subscribe.planName == null
-                  ? '购买套餐后即可使用'
-                  : expiredAt == null
-                  ? '长期有效'
-                  : '到期时间：${formatXboardDate(expiredAt)}',
-              style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 4),
+          // 第二行：套餐名（大字加粗）
+          Text(
+            subscribe.planName ?? '暂未订阅套餐',
+            style: AppTextStyle.title3.of(context, emphasized: true),
+          ),
+          const SizedBox(height: 4),
+          // 第三行：到期时间
+          Text(
+            subscribe.planName == null
+                ? '购买套餐后即可使用'
+                : expiredAt == null
+                ? '长期有效'
+                : '到期时间：${formatXboardDate(expiredAt)}',
+            style: AppTextStyle.footnote.of(context).copyWith(
+              color: colorScheme.onSurfaceVariant,
             ),
-            if (total > 0) ...[
-              const SizedBox(height: 16),
-              LinearProgressIndicator(value: progress),
-              const SizedBox(height: 8),
-              Text(
-                '已用 ${formatXboardBytes(subscribe.used)} / '
-                '${formatXboardBytes(total)}，'
-                '剩余 ${formatXboardBytes(remaining > 0 ? remaining : 0)}',
-                style: theme.textTheme.bodySmall,
-              ),
-              if (subscribe.resetDay != null)
-                Text(
-                  '${subscribe.resetDay} 天后重置流量',
-                  style: theme.textTheme.bodySmall,
+          ),
+          if (total > 0) ...[
+            const SizedBox(height: 16),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 8,
+                backgroundColor: colorScheme.surfaceContainerHighest,
+                valueColor: const AlwaysStoppedAnimation(
+                  Color(0xFF2563EB),
                 ),
-            ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '已用 ${formatXboardBytes(subscribe.used)} / '
+              '总量 ${formatXboardBytes(total)} / '
+              '剩余 ${formatXboardBytes(remaining > 0 ? remaining : 0)}',
+              style: AppTextStyle.caption2.of(context).copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            // 只在剩余不足 31 天时提示重置。
+            if (resetDay != null && resetDay > 0 && resetDay < 31)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '$resetDay 天后重置流量',
+                  style: AppTextStyle.caption2.of(context).copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
           ],
-        ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    final config = xboardRemoteConfig.config.value;
     final items = <Widget>[
       _buildInfoCard(context),
       if (_error != null && _subscribe != null)
@@ -190,7 +222,7 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
           padding: const EdgeInsets.only(top: 8),
           child: Text(
             _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+            style: TextStyle(color: colorScheme.error),
           ),
         ),
       generateSection(
@@ -205,29 +237,27 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
             title: const Text('刷新账号与订阅'),
             onTap: _loading ? null : () => _load(syncProfile: true),
           ),
-          if (xboardRemoteConfig.config.value.tutorialUrl.isNotEmpty)
+          if (config.tutorialUrl.isNotEmpty)
             ListItem(
               leading: const GlyphIcon(AppGlyphs.info),
               title: const Text('使用教程'),
-              onTap: () =>
-                  _openUrl(xboardRemoteConfig.config.value.tutorialUrl),
+              onTap: () => _openUrl(config.tutorialUrl),
             ),
-          if (xboardRemoteConfig.config.value.websiteUrl.isNotEmpty)
+          if (config.websiteUrl.isNotEmpty)
             ListItem(
               leading: const GlyphIcon(AppGlyphs.openExternal),
               title: const Text('官网'),
-              onTap: () =>
-                  _openUrl(xboardRemoteConfig.config.value.websiteUrl),
+              onTap: () => _openUrl(config.websiteUrl),
             ),
-          ListItem(
-            leading: const GlyphIcon(AppGlyphs.account),
-            title: const Text('退出登录'),
-            onTap: _logout,
-          ),
           ListItem(
             leading: const GlyphIcon(AppGlyphs.settings),
             title: const Text('设置'),
             onTap: _openSettings,
+          ),
+          ListItem(
+            leading: GlyphIcon(AppGlyphs.account, color: colorScheme.error),
+            title: Text('退出登录', style: TextStyle(color: colorScheme.error)),
+            onTap: _logout,
           ),
         ],
       ),
@@ -242,8 +272,9 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
           padding: EdgeInsets.only(
             left: 16,
             right: 16,
-            top: 16,
-            bottom: 20 + context.bottomInset,
+            // 留出标题栏高度，避免标题压在卡片上。
+            top: context.sectionsTopPadding,
+            bottom: 120 + context.bottomInset,
           ),
           children: items,
         ),

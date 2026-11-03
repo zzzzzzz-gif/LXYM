@@ -5,15 +5,41 @@ import 'package:fl_clash/features/xboard/xboard_account_view.dart';
 import 'package:fl_clash/features/xboard/xboard_api.dart';
 import 'package:fl_clash/features/xboard/xboard_session.dart';
 import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/ui/icons/icons.dart';
+import 'package:fl_clash/ui/ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+const _plansBrandColor = Color(0xFF2563EB);
 
 String _formatPrice(int cents) {
   final yuan = cents / 100;
   return yuan == yuan.roundToDouble()
       ? '¥${yuan.toStringAsFixed(0)}'
       : '¥${yuan.toStringAsFixed(2)}';
+}
+
+/// 把套餐介绍（可能含 HTML）清洗成逐行卖点。
+List<String> _cleanPlanLines(String raw) {
+  if (raw.isEmpty) return const [];
+  // 1. 源码里的换行与制表符先变空格。
+  var s = raw.replaceAll(RegExp(r'[\r\n\t]'), ' ');
+  // 2. 块级标签变换行。
+  s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
+  s = s.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n');
+  s = s.replaceAll(RegExp(r'</li\s*>', caseSensitive: false), '\n');
+  s = s.replaceAll(RegExp(r'</div\s*>', caseSensitive: false), '\n');
+  s = s.replaceAll(RegExp(r'</h[1-6]\s*>', caseSensitive: false), '\n');
+  // 3. 去掉剩余标签，实体空格还原。
+  s = s.replaceAll(RegExp(r'<[^>]*>'), '');
+  s = s.replaceAll('&nbsp;', ' ');
+  // 4. 逐行清理：合并连续空格、去首尾、删空行。
+  return s
+      .split('\n')
+      .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
+      .where((line) => line.isNotEmpty)
+      .toList();
 }
 
 class XboardPlansPage extends ConsumerStatefulWidget {
@@ -234,47 +260,101 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
   }
 
   Widget _buildPlan(BuildContext context, XboardPlan plan) {
-    final theme = Theme.of(context);
-    return Card(
+    final colorScheme = context.colorScheme;
+    final dark = colorScheme.brightness == Brightness.dark;
+    final cardColor = dark ? const Color(0xFF23252D) : Colors.white;
+    final lines = _cleanPlanLines(plan.content);
+    // 最便宜的周期用于高亮。
+    String? cheapest;
+    int? cheapestPrice;
+    for (final entry in plan.prices.entries) {
+      if (cheapestPrice == null || entry.value < cheapestPrice) {
+        cheapestPrice = entry.value;
+        cheapest = entry.key;
+      }
+    }
+    return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(plan.name, style: theme.textTheme.titleLarge),
-            if (plan.content.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(plan.content, style: theme.textTheme.bodyMedium),
-            ],
-            const SizedBox(height: 12),
-            if (plan.soldOut)
-              Text('已售罄', style: TextStyle(color: theme.colorScheme.error))
-            else if (plan.prices.isEmpty)
-              const Text('暂无可购买的周期')
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final entry in plan.prices.entries)
-                    OutlinedButton(
-                      onPressed: _busy ? null : () => _buy(plan, entry.key),
-                      child: Text(
-                        '${xboardPeriods[entry.key] ?? entry.key} '
-                        '${_formatPrice(entry.value)}',
+      padding: const EdgeInsets.all(16),
+      decoration: ShapeDecoration(color: cardColor, shape: AppShape.all(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            plan.name,
+            style: AppTextStyle.title3.of(context, emphasized: true),
+          ),
+          if (lines.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final line in lines)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(top: 2),
+                      child: GlyphIcon(
+                        AppGlyphs.check,
+                        size: 15,
+                        color: _plansBrandColor,
                       ),
                     ),
-                ],
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        line,
+                        style: AppTextStyle.footnote.of(context).copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          height: 1.45,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
           ],
-        ),
+          const SizedBox(height: 14),
+          if (plan.soldOut)
+            Text(
+              '已售罄',
+              style: AppTextStyle.subheadline.of(context).copyWith(
+                color: colorScheme.error,
+              ),
+            )
+          else if (plan.prices.isEmpty)
+            Text(
+              '暂无可购买的周期',
+              style: AppTextStyle.footnote.of(context).copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final entry in plan.prices.entries)
+                  _PriceChip(
+                    label:
+                        '${xboardPeriods[entry.key] ?? entry.key} '
+                        '${_formatPrice(entry.value)}',
+                    highlighted: entry.key == cheapest,
+                    enabled: !_busy,
+                    onTap: () => _buy(plan, entry.key),
+                  ),
+              ],
+            ),
+        ],
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    final dark = colorScheme.brightness == Brightness.dark;
+    final pageColor = dark ? const Color(0xFF15171E) : const Color(0xFFF5F7FA);
     final plans = _plans;
     Widget body;
     if (plans == null) {
@@ -294,13 +374,21 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
       body = const Center(child: Text('暂无可购买的套餐'));
     } else {
       body = ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 12,
+          bottom: 120 + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [for (final plan in plans) _buildPlan(context, plan)],
       );
     }
     return Scaffold(
+      backgroundColor: pageColor,
       appBar: AppBar(
         title: const Text('购买套餐'),
+        backgroundColor: pageColor,
+        elevation: 0,
         automaticallyImplyLeading: !widget.embedded,
         bottom: _busy
             ? const PreferredSize(
@@ -310,6 +398,53 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
             : null,
       ),
       body: body,
+    );
+  }
+}
+
+/// 价格芯片：最便宜的周期高亮品牌蓝。
+class _PriceChip extends StatelessWidget {
+  const _PriceChip({
+    required this.label,
+    required this.highlighted,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool highlighted;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    final dark = colorScheme.brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: ShapeDecoration(
+          color: highlighted
+              ? _plansBrandColor
+              : (dark
+                    ? colorScheme.surfaceContainerHigh
+                    : colorScheme.surfaceContainer),
+          shape: AppShape.all(10),
+          side: highlighted
+              ? null
+              : BorderSide(color: colorScheme.outlineVariant),
+        ),
+        child: Text(
+          label,
+          style: AppTextStyle.footnote.of(context).copyWith(
+            color: highlighted
+                ? const Color(0xFFFFFFFF)
+                : colorScheme.onSurface,
+            fontWeight: highlighted ? FontWeight.bold : FontWeight.w400,
+          ),
+        ),
+      ),
     );
   }
 }

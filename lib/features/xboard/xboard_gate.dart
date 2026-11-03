@@ -69,17 +69,20 @@ class _XboardGateState extends ConsumerState<XboardGate> {
   }
 
   /// 版本更新检查：低于 minVersion 强制更新，低于 latestVersion 提示更新。
+  /// 当前平台没有下载地址时不弹窗。
   void _checkUpdate() {
     final config = xboardRemoteConfig.config.value;
+    final downloadUrl = _downloadUrlOf(config);
+    if (downloadUrl.isEmpty) return;
     final current = globalState.packageInfo.version;
     final minVersion = config.minVersion;
     final latestVersion = config.latestVersion;
     if (minVersion.isNotEmpty &&
         compareXboardVersion(current, minVersion) < 0) {
-      // 强制更新：不可关闭。
+      // 强制更新：不可关闭，没有「稍后再说」。
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _showForceUpdateDialog(config);
+        _showForceUpdateDialog(config, minVersion, downloadUrl);
       });
       return;
     }
@@ -87,13 +90,13 @@ class _XboardGateState extends ConsumerState<XboardGate> {
         compareXboardVersion(current, latestVersion) < 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        _showUpdateDialog(config);
+        _showUpdateDialog(config, latestVersion, downloadUrl);
       });
     }
   }
 
-  String get _downloadUrl {
-    final config = xboardRemoteConfig.config.value;
+  /// 当前平台对应的下载地址，空串表示该平台没有分发。
+  String _downloadUrlOf(XboardRemoteConfig config) {
     if (Platform.isAndroid) return config.downloadUrls['android'] ?? '';
     if (Platform.isWindows) return config.downloadUrls['windows'] ?? '';
     if (Platform.isMacOS) return config.downloadUrls['mac'] ?? '';
@@ -101,7 +104,16 @@ class _XboardGateState extends ConsumerState<XboardGate> {
     return '';
   }
 
-  void _showForceUpdateDialog(XboardRemoteConfig config) {
+  String _updateBody(XboardRemoteConfig config, String version) {
+    if (config.updateNote.isNotEmpty) return config.updateNote;
+    return '发现新版本 $version';
+  }
+
+  void _showForceUpdateDialog(
+    XboardRemoteConfig config,
+    String version,
+    String downloadUrl,
+  ) {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -109,10 +121,10 @@ class _XboardGateState extends ConsumerState<XboardGate> {
         canPop: false,
         child: AlertDialog(
           title: const Text('版本过低'),
-          content: Text(config.updateNote.isEmpty ? '请更新到最新版本后继续使用' : config.updateNote),
+          content: Text(_updateBody(config, version)),
           actions: [
             TextButton(
-              onPressed: () => _openDownload(config),
+              onPressed: () => _openDownload(downloadUrl),
               child: const Text('立即更新'),
             ),
           ],
@@ -121,19 +133,23 @@ class _XboardGateState extends ConsumerState<XboardGate> {
     );
   }
 
-  void _showUpdateDialog(XboardRemoteConfig config) {
+  void _showUpdateDialog(
+    XboardRemoteConfig config,
+    String version,
+    String downloadUrl,
+  ) {
     showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('发现新版本'),
-        content: Text(config.updateNote.isEmpty ? '有新版本可用' : config.updateNote),
+        content: Text(_updateBody(config, version)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
             child: const Text('稍后再说'),
           ),
           TextButton(
-            onPressed: () => _openDownload(config),
+            onPressed: () => _openDownload(downloadUrl),
             child: const Text('立即更新'),
           ),
         ],
@@ -141,8 +157,7 @@ class _XboardGateState extends ConsumerState<XboardGate> {
     );
   }
 
-  Future<void> _openDownload(XboardRemoteConfig config) async {
-    final url = _downloadUrl;
+  Future<void> _openDownload(String url) async {
     if (url.isEmpty) return;
     final uri = Uri.tryParse(url);
     if (uri != null && uri.hasScheme) {
