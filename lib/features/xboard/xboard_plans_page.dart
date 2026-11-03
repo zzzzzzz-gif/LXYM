@@ -431,9 +431,6 @@ class _PriceChip extends StatelessWidget {
                     ? colorScheme.surfaceContainerHigh
                     : colorScheme.surfaceContainer),
           shape: AppShape.all(10),
-          side: highlighted
-              ? null
-              : BorderSide(color: colorScheme.outlineVariant),
         ),
         child: Text(
           label,
