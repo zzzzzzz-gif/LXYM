@@ -1,8 +1,10 @@
 import 'dart:async';
 
+import 'package:fl_clash/enum/enum.dart';
 import 'package:fl_clash/features/xboard/xboard_account_view.dart';
 import 'package:fl_clash/features/xboard/xboard_api.dart';
 import 'package:fl_clash/features/xboard/xboard_session.dart';
+import 'package:fl_clash/providers/providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -15,7 +17,10 @@ String _formatPrice(int cents) {
 }
 
 class XboardPlansPage extends ConsumerStatefulWidget {
-  const XboardPlansPage({super.key});
+  const XboardPlansPage({super.key, this.embedded = false});
+
+  /// 作为底部标签页嵌入时为 true：不 pop，不显示返回按钮。
+  final bool embedded;
 
   @override
   ConsumerState<XboardPlansPage> createState() => _XboardPlansPageState();
@@ -183,8 +188,15 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
         return;
       }
       if (status == 1) {
-        if (mounted) showXboardMessage(context, '支付成功，套餐开通中，请稍后在“我的”页面刷新');
-        if (mounted) Navigator.of(context).pop(true);
+        if (!mounted) return;
+        if (widget.embedded) {
+          showXboardMessage(context, '支付成功，套餐开通中，请稍后刷新查看');
+          await _load();
+          _goToAccount();
+        } else {
+          showXboardMessage(context, '支付成功，套餐开通中，请稍后在“我的”页面刷新');
+          Navigator.of(context).pop(true);
+        }
         return;
       }
       if (status == 2) {
@@ -209,7 +221,16 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
     }
     if (!mounted) return;
     showXboardMessage(context, '购买成功，订阅已更新');
-    Navigator.of(context).pop(true);
+    if (widget.embedded) {
+      await _load();
+      _goToAccount();
+    } else {
+      Navigator.of(context).pop(true);
+    }
+  }
+
+  void _goToAccount() {
+    ref.read(currentPageLabelProvider.notifier).toPage(PageLabel.account);
   }
 
   Widget _buildPlan(BuildContext context, XboardPlan plan) {
@@ -280,6 +301,7 @@ class _XboardPlansPageState extends ConsumerState<XboardPlansPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('购买套餐'),
+        automaticallyImplyLeading: !widget.embedded,
         bottom: _busy
             ? const PreferredSize(
                 preferredSize: Size.fromHeight(4),

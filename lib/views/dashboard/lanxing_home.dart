@@ -137,23 +137,13 @@ class _TopBar extends StatelessWidget {
     final colorScheme = context.colorScheme;
     return Row(
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          clipBehavior: Clip.antiAlias,
-          decoration: ShapeDecoration(
-            color: colorScheme.primary,
-            shape: AppShape.all(AppCorner.lg),
-          ),
-          child: const Center(
-            child: Text(
-              '蓝',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Image.asset(
+            'assets/images/icon.png',
+            width: 36,
+            height: 36,
+            fit: BoxFit.cover,
           ),
         ),
         const SizedBox(width: 12),

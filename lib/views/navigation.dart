@@ -28,8 +28,10 @@ class Navigation implements NavigationPort {
       NavigationItem(
         glyph: AppGlyphs.star,
         label: PageLabel.plans,
-        builder: (_) =>
-            const XboardPlansPage(key: GlobalObjectKey(PageLabel.plans)),
+        builder: (_) => const XboardPlansPage(
+          key: GlobalObjectKey(PageLabel.plans),
+          embedded: true,
+        ),
       ),
       // 我的
       NavigationItem(

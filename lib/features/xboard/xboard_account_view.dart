@@ -5,6 +5,7 @@ import 'package:fl_clash/features/xboard/xboard_plans_page.dart';
 import 'package:fl_clash/features/xboard/xboard_session.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
+import 'package:fl_clash/views/tools.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -78,6 +79,12 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
       MaterialPageRoute(builder: (_) => const XboardPlansPage()),
     );
     if (bought == true) await _load();
+  }
+
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ToolsView()),
+    );
   }
 
   Future<void> _logout() async {
@@ -193,6 +200,11 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
             leading: const GlyphIcon(AppGlyphs.account),
             title: const Text('退出登录'),
             onTap: _logout,
+          ),
+          ListItem(
+            leading: const GlyphIcon(AppGlyphs.settings),
+            title: const Text('设置'),
+            onTap: _openSettings,
           ),
         ],
       ),
