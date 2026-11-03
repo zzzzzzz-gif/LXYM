@@ -22,25 +22,27 @@ String _formatPrice(int cents) {
 
 /// 把套餐介绍（可能含 HTML）清洗成逐行卖点。
 ///
-/// 源数据既可能用真实换行、也可能用 `<br>` 分隔卖点，所以原始换行先留作
-/// 分隔符，只把行内的制表符和多余空格压成单个空格。
+/// 面板的 content 是 `div.desc` 包一条卖点、内部用源码换行排版，所以块级
+/// 标签要先换成占位符，等源码换行压成空格之后再变换行，否则两者混在一起。
 List<String> _cleanPlanLines(String raw) {
   if (raw.isEmpty) return const [];
-  // 1. 统一真实换行为 \n（保留为卖点分隔），制表符变空格。
-  var s = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-  s = s.replaceAll('\t', ' ');
-  // 2. 块级标签变换行。
-  s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
-  s = s.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n');
-  s = s.replaceAll(RegExp(r'</li\s*>', caseSensitive: false), '\n');
-  s = s.replaceAll(RegExp(r'</div\s*>', caseSensitive: false), '\n');
-  s = s.replaceAll(RegExp(r'</h[1-6]\s*>', caseSensitive: false), '\n');
-  // 3. 去掉剩余标签，实体空格还原。
+  const sep = '\u0000';
+  var s = raw;
+  // 1. 块级标签先换成占位符（此时还不能用 \n）。
+  s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), sep);
+  s = s.replaceAll(RegExp(r'</div\s*>', caseSensitive: false), sep);
+  s = s.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), sep);
+  s = s.replaceAll(RegExp(r'</li\s*>', caseSensitive: false), sep);
+  s = s.replaceAll(RegExp(r'</h[1-6]\s*>', caseSensitive: false), sep);
+  // 2. 源码里的换行与制表符压成空格。
+  s = s.replaceAll(RegExp(r'[\r\n\t]'), ' ');
+  // 3. 去注释、去剩余标签，实体空格还原。
+  s = s.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
   s = s.replaceAll(RegExp(r'<[^>]*>'), '');
   s = s.replaceAll('&nbsp;', ' ');
-  // 4. 逐行清理：合并连续空格、去首尾、删空行。
+  // 4. 占位符变换行，逐行合并空格、去首尾、删空行。
   return s
-      .split('\n')
+      .split(sep)
       .map((line) => line.replaceAll(RegExp(r'\s+'), ' ').trim())
       .where((line) => line.isNotEmpty)
       .toList();
