@@ -21,10 +21,14 @@ String _formatPrice(int cents) {
 }
 
 /// 把套餐介绍（可能含 HTML）清洗成逐行卖点。
+///
+/// 源数据既可能用真实换行、也可能用 `<br>` 分隔卖点，所以原始换行先留作
+/// 分隔符，只把行内的制表符和多余空格压成单个空格。
 List<String> _cleanPlanLines(String raw) {
   if (raw.isEmpty) return const [];
-  // 1. 源码里的换行与制表符先变空格。
-  var s = raw.replaceAll(RegExp(r'[\r\n\t]'), ' ');
+  // 1. 统一真实换行为 \n（保留为卖点分隔），制表符变空格。
+  var s = raw.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+  s = s.replaceAll('\t', ' ');
   // 2. 块级标签变换行。
   s = s.replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
   s = s.replaceAll(RegExp(r'</p\s*>', caseSensitive: false), '\n');
