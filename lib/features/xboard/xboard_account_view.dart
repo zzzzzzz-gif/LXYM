@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:fl_clash/features/xboard/xboard_api.dart';
 import 'package:fl_clash/features/xboard/xboard_plans_page.dart';
+import 'package:fl_clash/features/xboard/xboard_remote_config.dart';
 import 'package:fl_clash/features/xboard/xboard_session.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
 import 'package:fl_clash/views/tools.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 String formatXboardBytes(int bytes) {
   const gb = 1024 * 1024 * 1024;
@@ -85,6 +87,13 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const ToolsView()),
     );
+  }
+
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.hasScheme) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   Future<void> _logout() async {
@@ -196,6 +205,20 @@ class _XboardAccountViewState extends ConsumerState<XboardAccountView> {
             title: const Text('刷新账号与订阅'),
             onTap: _loading ? null : () => _load(syncProfile: true),
           ),
+          if (xboardRemoteConfig.config.value.tutorialUrl.isNotEmpty)
+            ListItem(
+              leading: const GlyphIcon(AppGlyphs.info),
+              title: const Text('使用教程'),
+              onTap: () =>
+                  _openUrl(xboardRemoteConfig.config.value.tutorialUrl),
+            ),
+          if (xboardRemoteConfig.config.value.websiteUrl.isNotEmpty)
+            ListItem(
+              leading: const GlyphIcon(AppGlyphs.openExternal),
+              title: const Text('官网'),
+              onTap: () =>
+                  _openUrl(xboardRemoteConfig.config.value.websiteUrl),
+            ),
           ListItem(
             leading: const GlyphIcon(AppGlyphs.account),
             title: const Text('退出登录'),

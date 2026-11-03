@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fl_clash/common/common.dart';
 import 'package:fl_clash/common/service_probe.dart';
 import 'package:fl_clash/enum/enum.dart';
+import 'package:fl_clash/features/xboard/xboard_remote_config.dart';
 import 'package:fl_clash/models/models.dart';
 import 'package:fl_clash/providers/providers.dart';
 import 'package:fl_clash/ui/icons/icons.dart';
@@ -10,6 +11,7 @@ import 'package:fl_clash/ui/ui.dart';
 import 'package:fl_clash/views/proxies/proxies.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// 品牌强调色。
@@ -19,6 +21,8 @@ const _brandColor = Color(0xFF2563EB);
 const _idleColor = Color(0xFF5B6496); // 灰蓝
 const _connectingColor = Color(0xFFD6AA28); // 琥珀
 const _connectedColor = Color(0xFF2EAA50); // 绿
+
+const _noticeIdKey = 'xboard_notice_shown_id';
 
 /// 首页：大圆形连接开关 + 模式切换 + 当前节点卡片。
 class LanxingHomeView extends ConsumerStatefulWidget {
@@ -33,14 +37,51 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
   bool _pending = false;
   Timer? _pendingTimer;
 
+  XboardRemoteConfig _config = const XboardRemoteConfig();
+
   @override
   void initState() {
     super.initState();
+    _config = xboardRemoteConfig.config.value;
     ref.listenManual(isStartProvider, (prev, next) {
       if (_pending && prev != next) {
         _clearPending();
       }
     });
+    ref.listenManual(xboardRemoteConfig.config, (prev, next) {
+      if (mounted) setState(() => _config = next);
+    });
+    _maybeShowNoticePopup();
+  }
+
+  /// 公告弹窗：noticePopup 为 true 且 noticeId 未展示过时弹一次。
+  Future<void> _maybeShowNoticePopup() async {
+    final config = xboardRemoteConfig.config.value;
+    if (!config.noticePopup || config.noticeId.isEmpty) return;
+    String? shown;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      shown = prefs.getString(_noticeIdKey);
+    } catch (_) {}
+    if (shown == config.noticeId) return;
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(config.noticeTitle.isEmpty ? '公告' : config.noticeTitle),
+        content: Text(config.noticeContent),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_noticeIdKey, config.noticeId);
+    } catch (_) {}
   }
 
   void _clearPending() {
@@ -82,6 +123,7 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
     final isStart = ref.watch(isStartProvider);
     final connecting = _pending;
     final connected = !connecting && isStart;
+    final config = _config;
     return Scaffold(
       backgroundColor: pageColor,
       body: SafeArea(
@@ -90,18 +132,37 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _TopBar(onService: () => _openPlaceholder()),
+              _TopBar(
+                siteName: config.siteName,
+                onService: config.supportUrl.isEmpty
+                    ? null
+                    : () => _openUrl(config.supportUrl),
+              ),
               const SizedBox(height: 36),
               _ConnectButton(
                 connecting: connecting,
                 connected: connected,
                 onTap: _toggle,
               ),
+              if (config.homeText.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  config.homeText,
+                  textAlign: TextAlign.center,
+                  style: AppTextStyle.footnote.of(context).copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
               const SizedBox(height: 36),
               _SectionTitle('选项'),
               const SizedBox(height: 8),
               _ModeCard(),
               const SizedBox(height: 24),
+              if (config.noticeEnabled && config.noticeContent.isNotEmpty) ...[
+                _NoticeCard(config: config),
+                const SizedBox(height: 24),
+              ],
               _SectionTitle('节点'),
               const SizedBox(height: 8),
               _NodeCard(onTap: () => _goToProxies()),
@@ -118,19 +179,20 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
     );
   }
 
-  void _openPlaceholder() {
-    final uri = Uri.tryParse('https://example.com');
-    if (uri != null) {
-      launchUrl(uri, mode: LaunchMode.externalApplication);
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.hasScheme) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 }
 
-/// 顶部栏：圆角 App 图标 + 「蓝星云」 + 右侧「客服」。
+/// 顶部栏：圆角 App 图标 + 站点名 + 右侧「客服」。
 class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onService});
+  const _TopBar({required this.siteName, required this.onService});
 
-  final VoidCallback onService;
+  final String siteName;
+  final VoidCallback? onService;
 
   @override
   Widget build(BuildContext context) {
@@ -146,17 +208,82 @@ class _TopBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        const Text(
-          '蓝星云',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        Text(
+          siteName.isEmpty ? '蓝星云' : siteName,
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const Spacer(),
-        TextButton.icon(
-          onPressed: onService,
-          icon: const GlyphIcon(AppGlyphs.account, size: 18),
-          label: const Text('客服'),
-        ),
+        if (onService != null)
+          TextButton.icon(
+            onPressed: onService,
+            icon: const GlyphIcon(AppGlyphs.account, size: 18),
+            label: const Text('客服'),
+          ),
       ],
+    );
+  }
+}
+
+/// 公告卡片（可折叠）。
+class _NoticeCard extends StatefulWidget {
+  const _NoticeCard({required this.config});
+
+  final XboardRemoteConfig config;
+
+  @override
+  State<_NoticeCard> createState() => _NoticeCardState();
+}
+
+class _NoticeCardState extends State<_NoticeCard> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = context.colorScheme;
+    final dark = colorScheme.brightness == Brightness.dark;
+    final cardColor = dark ? const Color(0xFF23252D) : Colors.white;
+    final config = widget.config;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: ShapeDecoration(
+        color: cardColor,
+        shape: AppShape.all(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const GlyphIcon(AppGlyphs.info, size: 18, color: _brandColor),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  config.noticeTitle.isEmpty ? '公告' : config.noticeTitle,
+                  style: AppTextStyle.subheadline.of(context, emphasized: true),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: GlyphIcon(
+                  _expanded ? AppGlyphs.chevronUp : AppGlyphs.chevronDown,
+                  size: 18,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          if (_expanded) ...[
+            const SizedBox(height: 10),
+            Text(
+              config.noticeContent,
+              style: AppTextStyle.footnote.of(context).copyWith(
+                color: colorScheme.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

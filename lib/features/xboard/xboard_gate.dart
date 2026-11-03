@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:fl_clash/features/xboard/xboard_api.dart';
+import 'package:fl_clash/features/xboard/xboard_remote_config.dart';
 import 'package:fl_clash/features/xboard/xboard_session.dart';
+import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/state.dart';
 import 'package:fl_clash/ui/ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Shows the Xboard login page until the user signs in, then [child].
 class XboardGate extends ConsumerStatefulWidget {
@@ -21,6 +26,35 @@ class _XboardGateState extends ConsumerState<XboardGate> {
   void initState() {
     super.initState();
     unawaited(restoreXboardSession());
+    unawaited(xboardRemoteConfig.load());
+    _listenThemeColor();
+    // 已登录用户启动时也检查版本更新（延迟到配置加载完成）。
+    unawaited(_checkUpdateOnStartup());
+  }
+
+  Future<void> _checkUpdateOnStartup() async {
+    await xboardRemoteConfig.load();
+    if (!mounted) return;
+    if (xboardLoggedIn.value == true) {
+      _checkUpdate();
+    }
+  }
+
+  /// 监听远程配置的主题色，变化时更新主题。
+  void _listenThemeColor() {
+    ref.listenManual(
+      xboardRemoteConfig.config,
+      (prev, next) {
+        final color = next.themeColor;
+        if (color == null) return;
+        final current = ref.read(themeSettingProvider).primaryColor;
+        if (current == null || current != color.toARGB32()) {
+          ref
+              .read(themeSettingProvider.notifier)
+              .update((s) => s.copyWith(primaryColor: color.toARGB32()));
+        }
+      },
+    );
   }
 
   Future<void> _onLoggedIn(String auth, XboardSubscribe subscribe) async {
@@ -28,7 +62,90 @@ class _XboardGateState extends ConsumerState<XboardGate> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(syncXboardProfile(ref, subscribe.subscribeUrl));
+      _checkUpdate();
     });
+  }
+
+  /// 版本更新检查：低于 minVersion 强制更新，低于 latestVersion 提示更新。
+  void _checkUpdate() {
+    final config = xboardRemoteConfig.config.value;
+    final current = globalState.packageInfo.version;
+    final minVersion = config.minVersion;
+    final latestVersion = config.latestVersion;
+    if (minVersion.isNotEmpty &&
+        compareXboardVersion(current, minVersion) < 0) {
+      // 强制更新：不可关闭。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showForceUpdateDialog(config);
+      });
+      return;
+    }
+    if (latestVersion.isNotEmpty &&
+        compareXboardVersion(current, latestVersion) < 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _showUpdateDialog(config);
+      });
+    }
+  }
+
+  String get _downloadUrl {
+    final config = xboardRemoteConfig.config.value;
+    if (Platform.isAndroid) return config.downloadUrls['android'] ?? '';
+    if (Platform.isWindows) return config.downloadUrls['windows'] ?? '';
+    if (Platform.isMacOS) return config.downloadUrls['mac'] ?? '';
+    if (Platform.isIOS) return config.downloadUrls['ios'] ?? '';
+    return '';
+  }
+
+  void _showForceUpdateDialog(XboardRemoteConfig config) {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('版本过低'),
+          content: Text(config.updateNote.isEmpty ? '请更新到最新版本后继续使用' : config.updateNote),
+          actions: [
+            TextButton(
+              onPressed: () => _openDownload(config),
+              child: const Text('立即更新'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showUpdateDialog(XboardRemoteConfig config) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('发现新版本'),
+        content: Text(config.updateNote.isEmpty ? '有新版本可用' : config.updateNote),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('稍后再说'),
+          ),
+          TextButton(
+            onPressed: () => _openDownload(config),
+            child: const Text('立即更新'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openDownload(XboardRemoteConfig config) async {
+    final url = _downloadUrl;
+    if (url.isEmpty) return;
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.hasScheme) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   @override
@@ -96,6 +213,13 @@ class _XboardLoginPageState extends State<XboardLoginPage> {
     }
   }
 
+  Future<void> _openUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri != null && uri.hasScheme) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -155,6 +279,35 @@ class _XboardLoginPageState extends State<XboardLoginPage> {
                             )
                           : const Text('登录'),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  ValueListenableBuilder<XboardRemoteConfig>(
+                    valueListenable: xboardRemoteConfig.config,
+                    builder: (context, config, _) {
+                      final showRegister =
+                          config.registerEnabled && config.registerUrl.isNotEmpty;
+                      final showForgot = config.forgotUrl.isNotEmpty;
+                      if (!showRegister && !showForgot) {
+                        return const SizedBox.shrink();
+                      }
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (showRegister)
+                            TextButton(
+                              onPressed: () => _openUrl(config.registerUrl),
+                              child: const Text('注册账号'),
+                            ),
+                          if (showRegister && showForgot)
+                            const Text('·'),
+                          if (showForgot)
+                            TextButton(
+                              onPressed: () => _openUrl(config.forgotUrl),
+                              child: const Text('忘记密码'),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),

@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import 'xboard_remote_config.dart';
+
 const xboardBaseUrl = 'https://ht.zhslink.com';
 const xboardProfileLabel = '蓝星Cloud';
 
@@ -108,6 +110,12 @@ class XboardApi {
 
   final Dio _dio;
 
+  /// 每次请求前根据远程配置设置 baseUrl。
+  void _applyBaseUrl() {
+    final base = xboardRemoteConfig.apiBase.value;
+    _dio.options.baseUrl = base.isNotEmpty ? base : xboardBaseUrl;
+  }
+
   Map<String, dynamic> _body(Response<dynamic> response) {
     var body = response.data;
     if (body is String) {
@@ -145,9 +153,19 @@ class XboardApi {
 
   Future<T> _guard<T>(Future<T> Function() run) async {
     try {
+      _applyBaseUrl();
       return await run();
     } on DioException {
-      throw const XboardException('无法连接服务器，请检查网络');
+      // 网络错误：先刷新远程配置（可能换域名），再重试一次。
+      try {
+        await xboardRemoteConfig.load();
+      } catch (_) {}
+      try {
+        _applyBaseUrl();
+        return await run();
+      } on DioException {
+        throw const XboardException('无法连接服务器，请检查网络');
+      }
     }
   }
 
