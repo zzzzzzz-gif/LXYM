@@ -8,8 +8,9 @@ extension PageLabelL10n on PageLabel {
   String get label {
     final appLocalizations = currentAppLocalizations;
     return switch (this) {
-      PageLabel.dashboard => appLocalizations.dashboard,
-      PageLabel.proxies => appLocalizations.proxies,
+      PageLabel.dashboard => '网络',
+      PageLabel.proxies => '节点',
+      PageLabel.plans => '套餐',
       PageLabel.profiles => appLocalizations.profiles,
       PageLabel.tools => appLocalizations.tools,
       PageLabel.logs => appLocalizations.logs,

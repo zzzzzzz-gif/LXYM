@@ -1671,6 +1671,15 @@ abstract final class AppGlyphs {
     ], role: GlyphRole.detail),
   ]);
 
+  // 电源符号：开口圆环 + 顶部竖线（标准 power 图标）
+  static const power = Glyph([
+    GlyphArc(12, 12, 7.2, 295 * math.pi / 180, 310 * math.pi / 180),
+    GlyphPolyline([
+      GlyphVertex(12, 3.6),
+      GlyphVertex(12, 7.2),
+    ]),
+  ]);
+
   static const verified = Glyph([
     GlyphPolyline([
       GlyphVertex(12, 2.9, 1.5),
