@@ -1,13 +1,10 @@
 import 'dart:async';
 
 import 'package:fl_clash/features/xboard/xboard_api.dart';
-import 'package:fl_clash/providers/providers.dart';
+import 'package:fl_clash/features/xboard/xboard_session.dart';
 import 'package:fl_clash/ui/ui.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-const _authKey = 'xboard_auth_data';
 
 /// Shows the Xboard login page until the user signs in, then [child].
 class XboardGate extends ConsumerStatefulWidget {
@@ -20,61 +17,34 @@ class XboardGate extends ConsumerStatefulWidget {
 }
 
 class _XboardGateState extends ConsumerState<XboardGate> {
-  bool? _loggedIn;
-
   @override
   void initState() {
     super.initState();
-    unawaited(_restore());
-  }
-
-  Future<void> _restore() async {
-    String? auth;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      auth = prefs.getString(_authKey);
-    } catch (_) {
-      auth = null;
-    }
-    final loggedIn = auth != null && auth.isNotEmpty;
-    if (!mounted) return;
-    setState(() => _loggedIn = loggedIn);
+    unawaited(restoreXboardSession());
   }
 
   Future<void> _onLoggedIn(String auth, XboardSubscribe subscribe) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_authKey, auth);
-    } catch (_) {}
-    if (!mounted) return;
-    setState(() => _loggedIn = true);
+    await saveXboardSession(auth);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final exists = ref
-          .read(profilesProvider)
-          .any((profile) => profile.url == subscribe.subscribeUrl);
-      if (exists) return;
-      unawaited(
-        ref
-            .read(profilesActionProvider.notifier)
-            .addProfileFromLink(
-              subscribe.subscribeUrl,
-              label: xboardProfileLabel,
-            ),
-      );
+      unawaited(syncXboardProfile(ref, subscribe.subscribeUrl));
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final loggedIn = _loggedIn;
-    if (loggedIn == null) {
-      return const Scaffold(body: SizedBox.shrink());
-    }
-    if (loggedIn) {
-      return widget.child;
-    }
-    return XboardLoginPage(onLoggedIn: _onLoggedIn);
+    return ValueListenableBuilder<bool?>(
+      valueListenable: xboardLoggedIn,
+      builder: (context, loggedIn, _) {
+        if (loggedIn == null) {
+          return const Scaffold(body: SizedBox.shrink());
+        }
+        if (loggedIn) {
+          return widget.child;
+        }
+        return XboardLoginPage(onLoggedIn: _onLoggedIn);
+      },
+    );
   }
 }
 
@@ -89,7 +59,6 @@ class XboardLoginPage extends StatefulWidget {
 }
 
 class _XboardLoginPageState extends State<XboardLoginPage> {
-  final _api = XboardApi();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
@@ -115,8 +84,8 @@ class _XboardLoginPageState extends State<XboardLoginPage> {
       _error = null;
     });
     try {
-      final auth = await _api.login(email, password);
-      final subscribe = await _api.getSubscribe(auth);
+      final auth = await xboardApi.login(email, password);
+      final subscribe = await xboardApi.getSubscribe(auth);
       await widget.onLoggedIn(auth, subscribe);
     } on XboardException catch (e) {
       if (mounted) setState(() => _error = e.message);
@@ -137,62 +106,57 @@ class _XboardLoginPageState extends State<XboardLoginPage> {
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 400),
-              child: AutofillGroup(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      xboardProfileLabel,
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '登录你的账号',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 32),
-                    TextField(
-                      controller: _emailController,
-                      enabled: !_loading,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.email],
-                      decoration: const InputDecoration(labelText: '邮箱'),
-                    ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    xboardProfileLabel,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.headlineMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '登录你的账号',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 32),
+                  TextField(
+                    controller: _emailController,
+                    enabled: !_loading,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: '邮箱'),
+                  ),
+                  const SizedBox(height: 16),
+                  SecretTextFormField(
+                    controller: _passwordController,
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _submit(),
+                    decoration: const InputDecoration(labelText: '密码'),
+                  ),
+                  if (_error != null) ...[
                     const SizedBox(height: 16),
-                    SecretTextFormField(
-                      controller: _passwordController,
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _submit(),
-                      decoration: const InputDecoration(labelText: '密码'),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 16),
-                      Text(
-                        _error!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    ],
-                    const SizedBox(height: 24),
-                    FilledButton(
-                      onPressed: _loading ? null : _submit,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: _loading
-                            ? const SizedBox.square(
-                                dimension: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Text('登录'),
-                      ),
+                    Text(
+                      _error!,
+                      style: TextStyle(color: theme.colorScheme.error),
                     ),
                   ],
-                ),
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    onPressed: _loading ? null : _submit,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: _loading
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('登录'),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
