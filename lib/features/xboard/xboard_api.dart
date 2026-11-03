@@ -87,16 +87,6 @@ int _asInt(Object? value) {
   return 0;
 }
 
-String _stripHtml(String value) {
-  return value
-      .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
-      .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n')
-      .replaceAll(RegExp(r'<[^>]*>'), '')
-      .replaceAll('&nbsp;', ' ')
-      .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-      .trim();
-}
-
 class XboardApi {
   XboardApi()
     : _dio = Dio(
@@ -233,7 +223,7 @@ class XboardApi {
         XboardPlan(
           id: _asInt(item['id']),
           name: item['name']?.toString() ?? '',
-          content: content is String ? _stripHtml(content) : '',
+          content: content is String ? content : '',
           prices: prices,
           soldOut: item['capacity_limit'] is String,
         ),
