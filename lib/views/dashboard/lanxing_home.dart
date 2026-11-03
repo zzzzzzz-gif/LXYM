@@ -48,10 +48,12 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
         _clearPending();
       }
     });
-    ref.listenManual(xboardRemoteConfig.config, (prev, next) {
-      if (mounted) setState(() => _config = next);
-    });
+    xboardRemoteConfig.config.addListener(_onConfigChanged);
     _maybeShowNoticePopup();
+  }
+
+  void _onConfigChanged() {
+    if (mounted) setState(() => _config = xboardRemoteConfig.config.value);
   }
 
   /// 公告弹窗：noticePopup 为 true 且 noticeId 未展示过时弹一次。
@@ -95,6 +97,7 @@ class _LanxingHomeViewState extends ConsumerState<LanxingHomeView> {
   @override
   void dispose() {
     _pendingTimer?.cancel();
+    xboardRemoteConfig.config.removeListener(_onConfigChanged);
     super.dispose();
   }
 

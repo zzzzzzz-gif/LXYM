@@ -42,19 +42,21 @@ class _XboardGateState extends ConsumerState<XboardGate> {
 
   /// 监听远程配置的主题色，变化时更新主题。
   void _listenThemeColor() {
-    ref.listenManual(
-      xboardRemoteConfig.config,
-      (prev, next) {
-        final color = next.themeColor;
-        if (color == null) return;
-        final current = ref.read(themeSettingProvider).primaryColor;
-        if (current == null || current != color.toARGB32()) {
-          ref
-              .read(themeSettingProvider.notifier)
-              .update((s) => s.copyWith(primaryColor: color.toARGB32()));
-        }
-      },
-    );
+    void apply(XboardRemoteConfig next) {
+      final color = next.themeColor;
+      if (color == null) return;
+      final current = ref.read(themeSettingProvider).primaryColor;
+      if (current == null || current != color.toARGB32()) {
+        ref
+            .read(themeSettingProvider.notifier)
+            .update((s) => s.copyWith(primaryColor: color.toARGB32()));
+      }
+    }
+
+    apply(xboardRemoteConfig.config.value);
+    xboardRemoteConfig.config.addListener(() {
+      apply(xboardRemoteConfig.config.value);
+    });
   }
 
   Future<void> _onLoggedIn(String auth, XboardSubscribe subscribe) async {
