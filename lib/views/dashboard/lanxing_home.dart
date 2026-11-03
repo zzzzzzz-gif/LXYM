@@ -10,7 +10,6 @@ import 'package:fl_clash/ui/icons/icons.dart';
 import 'package:fl_clash/ui/ui.dart';
 import 'package:fl_clash/views/dashboard/widgets/card.dart';
 import 'package:fl_clash/views/proxies/proxies.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_new_shapes/material_new_shapes.dart';
 import 'package:material_ui/material_ui.dart';
@@ -249,7 +248,7 @@ class _BreathingBadgeState extends State<_BreathingBadge>
 
   @override
   void didUpdateWidget(_BreathingBadge oldWidget) {
-    super.didUpdateWidget();
+    super.didUpdateWidget(oldWidget);
     if (oldWidget.connected != widget.connected ||
         oldWidget.connecting != widget.connecting) {
       _updateAnimation();
@@ -324,7 +323,6 @@ class _BreathingBadgeState extends State<_BreathingBadge>
                             dimension: widget.size * 0.22,
                             child: const CircularProgressIndicator(
                               strokeWidth: 3,
-                              color: Colors.white,
                             ),
                           )
                         : GlyphIcon(
